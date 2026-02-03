@@ -26,7 +26,8 @@ def load_parcel_data():
             gdf[col] = pd.to_numeric(gdf[col].astype(str).str.replace(r'[$,]', '', regex=True), errors='coerce').round(2)
     
     if 'Acres' in gdf.columns:
-        gdf['Acres'] = pd.to_numeric(gdf['Acres'], errors='coerce').round(2)
+        # convert square meters to acres
+        gdf['Acres'] = pd.to_numeric(gdf['Shape__Area'], errors='coerce') / 4046.8564224
         
     if 'Four Hearts Package' in gdf.columns:
         gdf['Four Hearts Package'] = gdf['Four Hearts Package'].fillna("N/A").astype(str)
@@ -70,7 +71,7 @@ def create_map(gdf):
             'fillColor': '#ffff00' if is_selected else base_color,
             'color': 'white' if not is_selected else 'black',
             'weight': 1.5 if not is_selected else 3,
-            'fillOpacity': 0.6 if not is_selected else 0.9
+            'fillOpacity': 0.4 if not is_selected else 0.7
         }
 
     # Tooltip Fields (Updated Parcel_ID)
