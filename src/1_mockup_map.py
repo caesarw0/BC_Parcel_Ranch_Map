@@ -76,7 +76,7 @@ def create_map(gdf):
 
     # Tooltip Fields (Updated Parcel_ID)
     tooltip_fields = [
-        "Parcel_ID", "Brief description", "Acres", "ALR status", 
+        "DL#", "Parcel_ID", "Brief description", "Acres", "ALR status", 
         "Assesed Value TOTAL", "BD List Value", "Four Hearts Package"
     ]
     available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
