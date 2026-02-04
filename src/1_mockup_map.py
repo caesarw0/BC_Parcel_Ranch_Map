@@ -9,6 +9,21 @@ import branca.colormap as cm
 st.set_page_config(layout="wide")
 
 # --- DATA LOADING ---
+def fix_image_paths_to_static(description):
+    if not isinstance(description, str) or 'src="files/' not in description:
+        return description
+
+    # Use the absolute web path /static/
+    # This points to your local [project_root]/static/ folder
+    BASE_IMG_URL = "https://raw.githubusercontent.com/caesarw0/BC_Parcel_Ranch_Map/main/img/"
+
+    fixed_desc = description.replace('src="files/', f'src="{BASE_IMG_URL}')
+    
+    # Force the image to stay within the popup bounds
+    fixed_desc = fixed_desc.replace('<img ', '<img style="width:100%; height:auto;" ')
+    
+    return fixed_desc
+
 @st.cache_data
 def load_parcel_data():
     gdf = gpd.read_file("data/four_hearts_parcels_with_price.geojson").to_crs(epsg=4326)
@@ -124,7 +139,7 @@ def create_map(gdf, points_gdf):
     for _, row in points_gdf.iterrows():
         # 1. Prepare the HTML Content
         name_html = f"<b>{row['Name']}</b>"
-        desc = row.get('Description')
+        desc = fix_image_paths_to_static(row.get('Description'))
         
         # Logic: if Description is not None and not empty string
         if pd.notna(desc) and str(desc).strip():
