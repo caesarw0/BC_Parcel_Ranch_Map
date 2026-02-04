@@ -34,8 +34,19 @@ def load_parcel_data():
         
     return gdf
 
+@st.cache_data
+def load_point_data():
+    try:
+        gdf = gpd.read_file("data/four_hearts_ranch_kmz_points.geojson").to_crs(epsg=4326)
+        return gdf
+    except Exception as e:
+        st.error(f"Error loading points: {e}")
+        return None
+
+
 try:
     parcels_gdf = load_parcel_data()
+    points_gdf = load_point_data()
     # Use the new PID name for filtering
     selectable_gdf = parcels_gdf[parcels_gdf['Parcel_ID'].notna()].copy()
 except Exception as e:
@@ -51,8 +62,31 @@ package_color_map = {pkg: colors[i % len(colors)] for i, pkg in enumerate(unique
 if 'selected_id' not in st.session_state:
     st.session_state.selected_id = None
 
+
+def create_div_icon(icon_url, bg_color="#3498db"):
+    # CSS for a circular background with the SVG centered inside
+    icon_html = f"""
+    <div style="
+        background-color: {bg_color};
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        border: 2px solid white;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0px 2px 4px rgba(0,0,0,0.3);
+    ">
+        <img src="{icon_url}" style="width: 18px; height: 18px; filter: brightness(0) invert(1);">
+    </div>
+    """
+    return folium.DivIcon(
+        html=icon_html,
+        icon_size=(30, 30),
+        icon_anchor=(15, 15)
+    )
 # --- MAP RENDERER ---
-def create_map(gdf):
+def create_map(gdf, points_gdf):
     bounds = gdf.total_bounds
     center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
     
@@ -86,11 +120,23 @@ def create_map(gdf):
         style_function=style_func,
         tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
     ).add_to(m)
+
+    for _, row in points_gdf.iterrows():
+        popup_html = f"<b>{row['Name']}</b><br>{row['Description']}" if row['Description'] else f"<b>{row['Name']}</b>"
+        # Example: Assign colors based on name
+        bg = "#229ce6" if "lake" in row['Name'].lower() and not "house" in row['Name'].lower() else "#2ecc71"
+        
+        folium.Marker(
+            location=[row.geometry.y, row.geometry.x],
+            icon=create_div_icon(row['map_pin_icon'], bg_color=bg),
+            popup=folium.Popup(popup_html, max_width=300),
+            tooltip=row['Name']
+        ).add_to(m)
     
     return m
 
 # --- DISPLAY ---
-map_output = st_folium(create_map(parcels_gdf), width="100%", height=600, key="four_hearts_map")
+map_output = st_folium(create_map(parcels_gdf, points_gdf), width="100%", height=600, key="four_hearts_map")
 
 # Metrics
 m_col1, m_col2, m_col3 = st.columns(3)
