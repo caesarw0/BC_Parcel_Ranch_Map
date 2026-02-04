@@ -8,6 +8,17 @@ import branca.colormap as cm
 # --- CONFIG ---
 st.set_page_config(layout="wide")
 
+GOOGLE_TILES = {
+    "Street Map": {
+        "url": "https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}",
+        "attr": "Google Streets"
+    },
+    "Satellite": {
+        "url": "https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
+        "attr": "Google Hybrid"
+    },
+}
+
 # --- DATA LOADING ---
 def fix_image_paths_to_static(description):
     if not isinstance(description, str) or 'src="files/' not in description:
@@ -106,8 +117,13 @@ def create_map(gdf, points_gdf):
     center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
     
     m = folium.Map(location=center, zoom_start=13, tiles=None)
-    google_hybrid_url = 'https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}'
-    folium.TileLayer(tiles=google_hybrid_url, attr='Google', name='Google Hybrid', overlay=False).add_to(m)
+    for name, tile_info in GOOGLE_TILES.items():
+        folium.TileLayer(
+            tiles=tile_info['url'],
+            attr=tile_info['attr'],
+            name=name,
+            overlay=False
+        ).add_to(m)
 
     def style_func(feature):
         pkg = feature['properties'].get('Four Hearts Package', "N/A")
@@ -137,7 +153,7 @@ def create_map(gdf, points_gdf):
         tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
     ).add_to(m)
 
-    fg_pins = folium.FeatureGroup(name="Infrastructure Pins", show=True)
+    fg_pins = folium.FeatureGroup(name="Structures", show=True)
 
     for _, row in points_gdf.iterrows():
         name_html = f"<b>{row['Name']}</b>"
@@ -146,8 +162,8 @@ def create_map(gdf, points_gdf):
         
         # Color logic
         name_lower = row['Name'].lower()
-        bg = "#229ce6" if "lake" in name_lower and "house" not in name_lower else \
-             "#e74c3c" if "house" in name_lower or "estate" in name_lower else "#2ecc71"
+        bg = "#325F82" if "lake" in name_lower and "house" not in name_lower else \
+             "#8C985F" if "house" in name_lower or "estate" in name_lower else "#F5D798"
         
         # Add marker to the FEATURE GROUP instead of the map directly
         folium.Marker(
