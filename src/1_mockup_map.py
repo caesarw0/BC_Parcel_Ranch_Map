@@ -8,6 +8,17 @@ import branca.colormap as cm
 # --- CONFIG ---
 st.set_page_config(layout="wide")
 
+GOOGLE_TILES = {
+    "Street Map": {
+        "url": "https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}",
+        "attr": "Google Streets"
+    },
+    "Satellite": {
+        "url": "https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
+        "attr": "Google Hybrid"
+    },
+}
+
 # --- DATA LOADING ---
 def fix_image_paths_to_static(description):
     if not isinstance(description, str) or 'src="files/' not in description:
@@ -106,8 +117,13 @@ def create_map(gdf, points_gdf):
     center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
     
     m = folium.Map(location=center, zoom_start=13, tiles=None)
-    google_hybrid_url = 'https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}'
-    folium.TileLayer(tiles=google_hybrid_url, attr='Google', name='Google Hybrid', overlay=False).add_to(m)
+    for name, tile_info in GOOGLE_TILES.items():
+        folium.TileLayer(
+            tiles=tile_info['url'],
+            attr=tile_info['attr'],
+            name=name,
+            overlay=False
+        ).add_to(m)
 
     def style_func(feature):
         pkg = feature['properties'].get('Four Hearts Package', "N/A")
@@ -133,35 +149,34 @@ def create_map(gdf, points_gdf):
     folium.GeoJson(
         gdf,
         style_function=style_func,
+        name="Parcels", # Label for the layer control
         tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
     ).add_to(m)
 
+    fg_pins = folium.FeatureGroup(name="Structures", show=True)
+
     for _, row in points_gdf.iterrows():
-        # 1. Prepare the HTML Content
         name_html = f"<b>{row['Name']}</b>"
         desc = fix_image_paths_to_static(row.get('Description'))
+        full_html = f"{name_html}<br>{desc}" if pd.notna(desc) and str(desc).strip() else name_html
         
-        # Logic: if Description is not None and not empty string
-        if pd.notna(desc) and str(desc).strip():
-            full_html = f"{name_html}<br>{desc}"
-        else:
-            full_html = name_html
-            
-        # 2. Assign Color Logic
+        # Color logic
         name_lower = row['Name'].lower()
-        if "lake" in name_lower and "house" not in name_lower:
-            bg = "#229ce6" # Blue for water
-        elif "house" in name_lower or "estate" in name_lower:
-            bg = "#e74c3c" # Red for residences
-        else:
-            bg = "#2ecc71" # Green for infrastructure
+        bg = "#325F82" if "lake" in name_lower and "house" not in name_lower else \
+             "#8C985F" if "house" in name_lower or "estate" in name_lower else "#F5D798"
         
-        # 3. Create Marker with Identical Popup and Tooltip
+        # Add marker to the FEATURE GROUP instead of the map directly
         folium.Marker(
             location=[row.geometry.y, row.geometry.x],
             icon=create_div_icon(row['map_pin_icon'], bg_color=bg),
             tooltip=folium.Tooltip(full_html) 
-        ).add_to(m)
+        ).add_to(fg_pins)
+    
+    # Add the group to the map
+    fg_pins.add_to(m)
+
+    # 4. Add the Toggle Control (Top Right)
+    folium.LayerControl(position='topright', collapsed=False).add_to(m)
         
     return m
 
