@@ -122,21 +122,36 @@ def create_map(gdf, points_gdf):
     ).add_to(m)
 
     for _, row in points_gdf.iterrows():
-        popup_html = f"<b>{row['Name']}</b><br>{row['Description']}" if row['Description'] else f"<b>{row['Name']}</b>"
-        # Example: Assign colors based on name
-        bg = "#229ce6" if "lake" in row['Name'].lower() and not "house" in row['Name'].lower() else "#2ecc71"
+        # 1. Prepare the HTML Content
+        name_html = f"<b>{row['Name']}</b>"
+        desc = row.get('Description')
         
+        # Logic: if Description is not None and not empty string
+        if pd.notna(desc) and str(desc).strip():
+            full_html = f"{name_html}<br>{desc}"
+        else:
+            full_html = name_html
+            
+        # 2. Assign Color Logic
+        name_lower = row['Name'].lower()
+        if "lake" in name_lower and "house" not in name_lower:
+            bg = "#229ce6" # Blue for water
+        elif "house" in name_lower or "estate" in name_lower:
+            bg = "#e74c3c" # Red for residences
+        else:
+            bg = "#2ecc71" # Green for infrastructure
+        
+        # 3. Create Marker with Identical Popup and Tooltip
         folium.Marker(
             location=[row.geometry.y, row.geometry.x],
             icon=create_div_icon(row['map_pin_icon'], bg_color=bg),
-            popup=folium.Popup(popup_html, max_width=300),
-            tooltip=row['Name']
+            tooltip=folium.Tooltip(full_html) 
         ).add_to(m)
-    
+        
     return m
 
 # --- DISPLAY ---
-map_output = st_folium(create_map(parcels_gdf, points_gdf), width="100%", height=600, key="four_hearts_map")
+map_output = st_folium(create_map(parcels_gdf, points_gdf), width="100%", height=1000, key="four_hearts_map")
 
 # Metrics
 m_col1, m_col2, m_col3 = st.columns(3)
