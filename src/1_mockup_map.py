@@ -133,35 +133,34 @@ def create_map(gdf, points_gdf):
     folium.GeoJson(
         gdf,
         style_function=style_func,
+        name="Parcels", # Label for the layer control
         tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
     ).add_to(m)
 
+    fg_pins = folium.FeatureGroup(name="Infrastructure Pins", show=True)
+
     for _, row in points_gdf.iterrows():
-        # 1. Prepare the HTML Content
         name_html = f"<b>{row['Name']}</b>"
         desc = fix_image_paths_to_static(row.get('Description'))
+        full_html = f"{name_html}<br>{desc}" if pd.notna(desc) and str(desc).strip() else name_html
         
-        # Logic: if Description is not None and not empty string
-        if pd.notna(desc) and str(desc).strip():
-            full_html = f"{name_html}<br>{desc}"
-        else:
-            full_html = name_html
-            
-        # 2. Assign Color Logic
+        # Color logic
         name_lower = row['Name'].lower()
-        if "lake" in name_lower and "house" not in name_lower:
-            bg = "#229ce6" # Blue for water
-        elif "house" in name_lower or "estate" in name_lower:
-            bg = "#e74c3c" # Red for residences
-        else:
-            bg = "#2ecc71" # Green for infrastructure
+        bg = "#229ce6" if "lake" in name_lower and "house" not in name_lower else \
+             "#e74c3c" if "house" in name_lower or "estate" in name_lower else "#2ecc71"
         
-        # 3. Create Marker with Identical Popup and Tooltip
+        # Add marker to the FEATURE GROUP instead of the map directly
         folium.Marker(
             location=[row.geometry.y, row.geometry.x],
             icon=create_div_icon(row['map_pin_icon'], bg_color=bg),
             tooltip=folium.Tooltip(full_html) 
-        ).add_to(m)
+        ).add_to(fg_pins)
+    
+    # Add the group to the map
+    fg_pins.add_to(m)
+
+    # 4. Add the Toggle Control (Top Right)
+    folium.LayerControl(position='topright', collapsed=False).add_to(m)
         
     return m
 
