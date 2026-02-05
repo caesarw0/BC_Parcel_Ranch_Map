@@ -4,14 +4,32 @@ import pandas as pd
 import geopandas as gpd
 from streamlit_folium import st_folium
 import branca.colormap as cm
+from branca.element import Element
 
 # --- CONFIG ---
 st.set_page_config(layout="wide")
-
+st.markdown("""
+    <style>
+        /* Remove padding from the main Streamlit container */
+        .block-container {
+            padding: 0rem !important;
+            max-width: 100% !important;
+        }
+        /* Hide the Streamlit header and footer for a cleaner look */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        
+        /* Force the folium container to fill height */
+        iframe {
+            width: 100vw;
+        }
+    </style>
+""", unsafe_allow_html=True)
 GOOGLE_TILES = {
-    "Street Map": {
-        "url": "https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}",
-        "attr": "Google Streets"
+    "Terrain Map": {
+        "url": "https://mt0.google.com/vt/lyrs=p&hl=en&x={x}&y={y}&z={z}",
+        "attr": "Terrain"
     },
     "Satellite": {
         "url": "https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
@@ -73,8 +91,6 @@ def load_point_data():
 try:
     parcels_gdf = load_parcel_data()
     points_gdf = load_point_data()
-    # Use the new PID name for filtering
-    selectable_gdf = parcels_gdf[parcels_gdf['Parcel_ID'].notna()].copy()
 except Exception as e:
     st.error(f"Error loading GeoJSON: {e}")
     st.stop()
@@ -83,11 +99,6 @@ except Exception as e:
 unique_packages = sorted(parcels_gdf['Four Hearts Package'].unique())
 colors = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628']
 package_color_map = {pkg: colors[i % len(colors)] for i, pkg in enumerate(unique_packages)}
-
-# --- SESSION STATE ---
-if 'selected_id' not in st.session_state:
-    st.session_state.selected_id = None
-
 
 def create_div_icon(icon_url, bg_color="#3498db"):
     # CSS for a circular background with the SVG centered inside
@@ -113,10 +124,13 @@ def create_div_icon(icon_url, bg_color="#3498db"):
     )
 # --- MAP RENDERER ---
 def create_map(gdf, points_gdf):
+    # --- INITIAL SETUP ---
     bounds = gdf.total_bounds
     center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
     
     m = folium.Map(location=center, zoom_start=13, tiles=None)
+    
+    # Add Google Base Maps
     for name, tile_info in GOOGLE_TILES.items():
         folium.TileLayer(
             tiles=tile_info['url'],
@@ -125,94 +139,109 @@ def create_map(gdf, points_gdf):
             overlay=False
         ).add_to(m)
 
+    # --- DYNAMIC STYLING ---
     def style_func(feature):
         pkg = feature['properties'].get('Four Hearts Package', "N/A")
-        pid = feature['properties'].get('Parcel_ID') # Updated to Parcel_ID
-        
-        base_color = package_color_map.get(pkg, '#3498db')
-        is_selected = (pid == st.session_state.selected_id and st.session_state.selected_id is not None)
-        
+        color = package_color_map.get(pkg, '#808080')
         return {
-            'fillColor': '#ffff00' if is_selected else base_color,
-            'color': 'white' if not is_selected else 'black',
-            'weight': 1.5 if not is_selected else 3,
-            'fillOpacity': 0.4 if not is_selected else 0.7
+            'fillColor': color,
+            'color': 'white',
+            'weight': 1.5,
+            'fillOpacity': 0.5
         }
 
-    # Tooltip Fields (Updated Parcel_ID)
+    # Tooltip setup
     tooltip_fields = [
         "DL#", "Parcel_ID", "Brief description", "Acres", "ALR status", 
         "Assesed Value TOTAL", "BD List Value", "Four Hearts Package"
     ]
     available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
 
-    folium.GeoJson(
-        gdf,
-        style_function=style_func,
-        name="Parcels", # Label for the layer control
-        tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
-    ).add_to(m)
+    # --- LAYER HIERARCHY ---
+    # 1. Licensed Land Group (Independent)
+    fg_licensed = folium.FeatureGroup(name="License/Lease Land", show=True)
+    licensed_gdf = gdf[gdf['License'] == True]
+    if not licensed_gdf.empty:
+        folium.GeoJson(
+            licensed_gdf,
+            style_function=style_func,
+            tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
+        ).add_to(fg_licensed)
+    fg_licensed.add_to(m)
 
+    # 2. Master Parcel Group (The "Parcel All" Toggle)
+    fg_all_parcels = folium.FeatureGroup(name="Parcels (All)", show=True)
+    
+    # 3. Create Sub-layers for each Package
+    unlicensed_gdf = gdf[gdf['License'] == False]
+    packages = sorted(unlicensed_gdf['Four Hearts Package'].unique())
+
+    for pkg in packages:
+        # Indented name for visual nesting in the LayerControl
+        pkg_display_name = f"&nbsp;&nbsp;&nbsp;&nbsp; {pkg}"
+        pkg_group = folium.FeatureGroup(name=pkg_display_name, show=True)
+        
+        pkg_gdf = unlicensed_gdf[unlicensed_gdf['Four Hearts Package'] == pkg]
+        
+        if not pkg_gdf.empty:
+            folium.GeoJson(
+                pkg_gdf,
+                style_function=style_func,
+                tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
+            ).add_to(pkg_group)
+        
+        # ADD THE PACKAGE TO THE MASTER GROUP (This creates the hierarchy)
+        pkg_group.add_to(fg_all_parcels)
+
+    # Finally, add the Master Group to the map
+    fg_all_parcels.add_to(m)
+
+    # 4. Infrastructure/Points Group
     fg_pins = folium.FeatureGroup(name="Structures", show=True)
-
     for _, row in points_gdf.iterrows():
         name_html = f"<b>{row['Name']}</b>"
         desc = fix_image_paths_to_static(row.get('Description'))
         full_html = f"{name_html}<br>{desc}" if pd.notna(desc) and str(desc).strip() else name_html
         
-        # Color logic
         name_lower = row['Name'].lower()
         bg = "#325F82" if "lake" in name_lower and "house" not in name_lower else \
              "#8C985F" if "house" in name_lower or "estate" in name_lower else "#F5D798"
         
-        # Add marker to the FEATURE GROUP instead of the map directly
         folium.Marker(
             location=[row.geometry.y, row.geometry.x],
             icon=create_div_icon(row['map_pin_icon'], bg_color=bg),
             tooltip=folium.Tooltip(full_html) 
         ).add_to(fg_pins)
     
-    # Add the group to the map
     fg_pins.add_to(m)
 
-    # 4. Add the Toggle Control (Top Right)
+    # --- UI CONTROLS ---
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
+
+    # Custom CSS for the Layer Control (Checkboxes)
+    custom_css = """
+    <style>
+        .leaflet-control-layers-selector {
+            accent-color: #2e7d32 !important;
+            cursor: pointer;
+        }
+        .leaflet-control-layers-list label {
+            margin-bottom: 5px;
+            display: block;
+            font-family: sans-serif;
+            font-size: 14px;
+        }
+    </style>
+    """
+    m.get_root().header.add_child(Element(custom_css))
         
     return m
 
 # --- DISPLAY ---
-map_output = st_folium(create_map(parcels_gdf, points_gdf), width="100%", height=1000, key="four_hearts_map")
-
-# Metrics
-m_col1, m_col2, m_col3 = st.columns(3)
-with m_col1:
-    st.metric("Total Parcels", len(parcels_gdf))
-with m_col2:
-    avg_val = parcels_gdf['Assesed Value TOTAL'].mean(skipna=True) if 'Assesed Value TOTAL' in parcels_gdf.columns else 0
-    st.metric("Avg Assessed Value", f"${avg_val:,.0f}")
-with m_col3:
-    st.metric("Currently Selected PID", st.session_state.selected_id if st.session_state.selected_id else "None")
-
-# Table (Updated to PID)
-st.write("### Property Financial Overview")
-event = st.dataframe(
-    selectable_gdf[["PID", "Four Hearts Package", "Acres", "Assesed Value TOTAL", "BD List Value"]],
-    use_container_width=True,
-    hide_index=True,
-    selection_mode="single-row",
-    on_select="rerun"
+map_output = st_folium(
+    create_map(parcels_gdf, points_gdf), 
+    width="100%", 
+    height=1000, # This will be overridden by the 100vh CSS above
+    key="four_hearts_map",
+    use_container_width=True
 )
-
-# SYNC LOGIC
-if map_output and map_output.get("last_active_drawing"):
-    new_id = map_output["last_active_drawing"]["properties"].get("PID") # Updated to PID
-    if new_id and new_id != st.session_state.selected_id:
-        st.session_state.selected_id = new_id
-        st.rerun()
-
-if event.selection.rows:
-    selected_row_index = event.selection.rows[0]
-    new_id = selectable_gdf.iloc[selected_row_index]['PID'] # Updated to PID
-    if new_id != st.session_state.selected_id:
-        st.session_state.selected_id = new_id
-        st.rerun()
