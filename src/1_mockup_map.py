@@ -8,7 +8,24 @@ from branca.element import Element
 
 # --- CONFIG ---
 st.set_page_config(layout="wide")
-
+st.markdown("""
+    <style>
+        /* Remove padding from the main Streamlit container */
+        .block-container {
+            padding: 0rem !important;
+            max-width: 100% !important;
+        }
+        /* Hide the Streamlit header and footer for a cleaner look */
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header {visibility: hidden;}
+        
+        /* Force the folium container to fill height */
+        iframe {
+            width: 100vw;
+        }
+    </style>
+""", unsafe_allow_html=True)
 GOOGLE_TILES = {
     "Terrain Map": {
         "url": "https://mt0.google.com/vt/lyrs=p&hl=en&x={x}&y={y}&z={z}",
@@ -220,4 +237,10 @@ def create_map(gdf, points_gdf):
     return m
 
 # --- DISPLAY ---
-map_output = st_folium(create_map(parcels_gdf, points_gdf), width="100%", height=1000, key="four_hearts_map")
+map_output = st_folium(
+    create_map(parcels_gdf, points_gdf), 
+    width="100%", 
+    height=1000, # This will be overridden by the 100vh CSS above
+    key="four_hearts_map",
+    use_container_width=True
+)
