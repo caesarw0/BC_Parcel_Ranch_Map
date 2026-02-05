@@ -4,14 +4,15 @@ import pandas as pd
 import geopandas as gpd
 from streamlit_folium import st_folium
 import branca.colormap as cm
+from branca.element import Element
 
 # --- CONFIG ---
 st.set_page_config(layout="wide")
 
 GOOGLE_TILES = {
-    "Street Map": {
-        "url": "https://mt0.google.com/vt/lyrs=m&hl=en&x={x}&y={y}&z={z}",
-        "attr": "Google Streets"
+    "Terrain Map": {
+        "url": "https://mt0.google.com/vt/lyrs=p&hl=en&x={x}&y={y}&z={z}",
+        "attr": "Terrain"
     },
     "Satellite": {
         "url": "https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
@@ -177,6 +178,26 @@ def create_map(gdf, points_gdf):
 
     # 4. Add the Toggle Control (Top Right)
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
+
+    # Define the CSS targeting the specific classes in your HTML
+    custom_css = """
+    <style>
+        /* Targets the specific selector class from your HTML */
+        .leaflet-control-layers-selector {
+            accent-color: #2e7d32 !important; /* A nice forest green */
+            cursor: pointer;
+        }
+
+        /* Adds a little breathing room between the list items */
+        .leaflet-control-layers-list label {
+            margin-bottom: 5px;
+            display: block;
+        }
+    </style>
+    """
+
+    # Inject the style into the map header
+    m.get_root().header.add_child(Element(custom_css))
         
     return m
 
