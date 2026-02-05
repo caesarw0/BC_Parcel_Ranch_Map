@@ -158,16 +158,28 @@ def create_map(gdf, points_gdf):
     available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
 
     # --- LAYER HIERARCHY ---
-    # 1. Licensed Land Group (Independent)
-    fg_licensed = folium.FeatureGroup(name="License/Lease Land", show=True)
-    licensed_gdf = gdf[gdf['License'] == True]
-    if not licensed_gdf.empty:
-        folium.GeoJson(
-            licensed_gdf,
-            style_function=style_func,
-            tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
-        ).add_to(fg_licensed)
-    fg_licensed.add_to(m)
+    
+
+    
+
+    # 4. Infrastructure/Points Group
+    fg_pins = folium.FeatureGroup(name="Structures", show=True)
+    for _, row in points_gdf.iterrows():
+        name_html = f"<b>{row['Name']}</b>"
+        desc = fix_image_paths_to_static(row.get('Description'))
+        full_html = f"{name_html}<br>{desc}" if pd.notna(desc) and str(desc).strip() else name_html
+        
+        name_lower = row['Name'].lower()
+        bg = "#325F82" if "lake" in name_lower and "house" not in name_lower else \
+             "#8C985F" if "house" in name_lower or "estate" in name_lower else "#F5D798"
+        
+        folium.Marker(
+            location=[row.geometry.y, row.geometry.x],
+            icon=create_div_icon(row['map_pin_icon'], bg_color=bg),
+            tooltip=folium.Tooltip(full_html) 
+        ).add_to(fg_pins)
+    
+    fg_pins.add_to(m)
 
     # 2. Master Parcel Group (The "Parcel All" Toggle)
     fg_all_parcels = folium.FeatureGroup(name="Parcels (All)", show=True)
@@ -196,24 +208,16 @@ def create_map(gdf, points_gdf):
     # Finally, add the Master Group to the map
     fg_all_parcels.add_to(m)
 
-    # 4. Infrastructure/Points Group
-    fg_pins = folium.FeatureGroup(name="Structures", show=True)
-    for _, row in points_gdf.iterrows():
-        name_html = f"<b>{row['Name']}</b>"
-        desc = fix_image_paths_to_static(row.get('Description'))
-        full_html = f"{name_html}<br>{desc}" if pd.notna(desc) and str(desc).strip() else name_html
-        
-        name_lower = row['Name'].lower()
-        bg = "#325F82" if "lake" in name_lower and "house" not in name_lower else \
-             "#8C985F" if "house" in name_lower or "estate" in name_lower else "#F5D798"
-        
-        folium.Marker(
-            location=[row.geometry.y, row.geometry.x],
-            icon=create_div_icon(row['map_pin_icon'], bg_color=bg),
-            tooltip=folium.Tooltip(full_html) 
-        ).add_to(fg_pins)
-    
-    fg_pins.add_to(m)
+    # 1. Licensed Land Group (Independent)
+    fg_licensed = folium.FeatureGroup(name="License/Lease Land", show=True)
+    licensed_gdf = gdf[gdf['License'] == True]
+    if not licensed_gdf.empty:
+        folium.GeoJson(
+            licensed_gdf,
+            style_function=style_func,
+            tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
+        ).add_to(fg_licensed)
+    fg_licensed.add_to(m)
 
     # --- UI CONTROLS ---
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
