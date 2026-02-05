@@ -124,10 +124,13 @@ def create_div_icon(icon_url, bg_color="#3498db"):
     )
 # --- MAP RENDERER ---
 def create_map(gdf, points_gdf):
+    # --- INITIAL SETUP ---
     bounds = gdf.total_bounds
     center = [(bounds[1] + bounds[3])/2, (bounds[0] + bounds[2])/2]
     
     m = folium.Map(location=center, zoom_start=13, tiles=None)
+    
+    # Add Google Base Maps
     for name, tile_info in GOOGLE_TILES.items():
         folium.TileLayer(
             tiles=tile_info['url'],
@@ -136,102 +139,100 @@ def create_map(gdf, points_gdf):
             overlay=False
         ).add_to(m)
 
+    # --- DYNAMIC STYLING ---
     def style_func(feature):
-        # Get the package name from the geojson properties
         pkg = feature['properties'].get('Four Hearts Package', "N/A")
-        
-        # Look up the color in your package_color_map (defined globally)
-        # Default to a neutral gray if the package isn't found
         color = package_color_map.get(pkg, '#808080')
-        
         return {
             'fillColor': color,
-            'color': 'white',      # Border color
-            'weight': 1.5,         # Border thickness
-            'fillOpacity': 0.5     # Opacity of the polygon
+            'color': 'white',
+            'weight': 1.5,
+            'fillOpacity': 0.5
         }
 
-    # Tooltip Fields (Updated Parcel_ID)
+    # Tooltip setup
     tooltip_fields = [
         "DL#", "Parcel_ID", "Brief description", "Acres", "ALR status", 
         "Assesed Value TOTAL", "BD List Value", "Four Hearts Package"
     ]
     available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
 
-    # 1. Create FeatureGroups for Licensed vs Unlicensed
+    # --- LAYER HIERARCHY ---
+    # 1. Licensed Land Group (Independent)
     fg_licensed = folium.FeatureGroup(name="License/Lease Land", show=True)
-    fg_unlicensed = folium.FeatureGroup(name="Parcels", show=True)
-
-    # 2. Filter GDF into two parts
     licensed_gdf = gdf[gdf['License'] == True]
-    unlicensed_gdf = gdf[gdf['License'] == False]
-
-    # Tooltip setup (keep your existing fields)
-    available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
-
-    # 3. Add Licensed Parcels to its group
     if not licensed_gdf.empty:
         folium.GeoJson(
             licensed_gdf,
             style_function=style_func,
             tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
         ).add_to(fg_licensed)
-
-    # 4. Add Unlicensed Parcels to its group
-    if not unlicensed_gdf.empty:
-        folium.GeoJson(
-            unlicensed_gdf,
-            style_function=style_func,
-            tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
-        ).add_to(fg_unlicensed)
-
-    # Add both groups to the map
     fg_licensed.add_to(m)
-    fg_unlicensed.add_to(m)
 
+    # 2. Master Parcel Group (The "Parcel All" Toggle)
+    fg_all_parcels = folium.FeatureGroup(name="Parcels (All)", show=True)
+    
+    # 3. Create Sub-layers for each Package
+    unlicensed_gdf = gdf[gdf['License'] == False]
+    packages = sorted(unlicensed_gdf['Four Hearts Package'].unique())
+
+    for pkg in packages:
+        # Indented name for visual nesting in the LayerControl
+        pkg_display_name = f"&nbsp;&nbsp;&nbsp;&nbsp; {pkg}"
+        pkg_group = folium.FeatureGroup(name=pkg_display_name, show=True)
+        
+        pkg_gdf = unlicensed_gdf[unlicensed_gdf['Four Hearts Package'] == pkg]
+        
+        if not pkg_gdf.empty:
+            folium.GeoJson(
+                pkg_gdf,
+                style_function=style_func,
+                tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
+            ).add_to(pkg_group)
+        
+        # ADD THE PACKAGE TO THE MASTER GROUP (This creates the hierarchy)
+        pkg_group.add_to(fg_all_parcels)
+
+    # Finally, add the Master Group to the map
+    fg_all_parcels.add_to(m)
+
+    # 4. Infrastructure/Points Group
     fg_pins = folium.FeatureGroup(name="Structures", show=True)
-
     for _, row in points_gdf.iterrows():
         name_html = f"<b>{row['Name']}</b>"
         desc = fix_image_paths_to_static(row.get('Description'))
         full_html = f"{name_html}<br>{desc}" if pd.notna(desc) and str(desc).strip() else name_html
         
-        # Color logic
         name_lower = row['Name'].lower()
         bg = "#325F82" if "lake" in name_lower and "house" not in name_lower else \
              "#8C985F" if "house" in name_lower or "estate" in name_lower else "#F5D798"
         
-        # Add marker to the FEATURE GROUP instead of the map directly
         folium.Marker(
             location=[row.geometry.y, row.geometry.x],
             icon=create_div_icon(row['map_pin_icon'], bg_color=bg),
             tooltip=folium.Tooltip(full_html) 
         ).add_to(fg_pins)
     
-    # Add the group to the map
     fg_pins.add_to(m)
 
-    # 4. Add the Toggle Control (Top Right)
+    # --- UI CONTROLS ---
     folium.LayerControl(position='topright', collapsed=False).add_to(m)
 
-    # Define the CSS targeting the specific classes in your HTML
+    # Custom CSS for the Layer Control (Checkboxes)
     custom_css = """
     <style>
-        /* Targets the specific selector class from your HTML */
         .leaflet-control-layers-selector {
-            accent-color: #2e7d32 !important; /* A nice forest green */
+            accent-color: #2e7d32 !important;
             cursor: pointer;
         }
-
-        /* Adds a little breathing room between the list items */
         .leaflet-control-layers-list label {
             margin-bottom: 5px;
             display: block;
+            font-family: sans-serif;
+            font-size: 14px;
         }
     </style>
     """
-
-    # Inject the style into the map header
     m.get_root().header.add_child(Element(custom_css))
         
     return m
