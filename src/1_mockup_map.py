@@ -87,18 +87,29 @@ def load_point_data():
         st.error(f"Error loading points: {e}")
         return None
 
+@st.cache_data
+def load_package_data():
+    try:
+        gdf = gpd.read_file("data/four_hearts_packages.geojson").to_crs(epsg=4326)
+        return gdf
+    except Exception as e:
+        st.error(f"Error loading packages: {e}")
+        return None
 
 try:
     parcels_gdf = load_parcel_data()
     points_gdf = load_point_data()
+    packages_gdf = load_package_data()
 except Exception as e:
     st.error(f"Error loading GeoJSON: {e}")
     st.stop()
 
 # --- COLOR MAPPING ---
 unique_packages = sorted(parcels_gdf['Four Hearts Package'].unique())
+unique_alr =  sorted(parcels_gdf['ALR status'].unique())
 colors = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628']
 package_color_map = {pkg: colors[i % len(colors)] for i, pkg in enumerate(unique_packages)}
+alr_color_map = {pkg: colors[i % len(colors)] for i, pkg in enumerate(unique_alr)}
 
 def create_div_icon(icon_url, bg_color="#3498db"):
     # CSS for a circular background with the SVG centered inside
@@ -146,8 +157,29 @@ def create_map(gdf, points_gdf):
         return {
             'fillColor': color,
             'color': 'white',
-            'weight': 1.5,
-            'fillOpacity': 0.5
+            'weight': 0.3,
+            'fillOpacity': 0.3
+        }
+
+    # --- DYNAMIC STYLING ---
+    def style_package_func(feature):
+        pkg = feature['properties'].get('package_name', "N/A")
+        color = package_color_map.get(pkg, '#808080')
+        return {
+            'fillColor': 'none',
+            'color': color,
+            'weight': 3.5,
+            'fillOpacity': 0
+        }
+
+    def style_alr_func(feature):
+        pkg = feature['properties'].get('ALR status', "N/A")
+        color = alr_color_map.get(pkg, '#808080')
+        return {
+            'fillColor': 'none',
+            'color': color,
+            'weight': 2.5,
+            'fillOpacity': 0
         }
 
     # Tooltip setup
@@ -207,6 +239,25 @@ def create_map(gdf, points_gdf):
 
     # Finally, add the Master Group to the map
     fg_all_parcels.add_to(m)
+
+
+    # 5. Packages Group
+    fg_packages = folium.FeatureGroup(name="Packages", show=True)
+    if not packages_gdf.empty:
+        folium.GeoJson(
+            packages_gdf,
+            style_function=style_package_func,
+        ).add_to(fg_packages)
+    fg_packages.add_to(m)
+
+    # 6. ALR status
+    fg_alr = folium.FeatureGroup(name="ALR Status", show=True)
+    if not parcels_gdf.empty:
+        folium.GeoJson(
+            parcels_gdf,
+            style_function=style_alr_func,
+        ).add_to(fg_alr)
+    fg_alr.add_to(m)
 
     # 1. Licensed Land Group (Independent)
     fg_licensed = folium.FeatureGroup(name="License/Lease Land", show=True)
