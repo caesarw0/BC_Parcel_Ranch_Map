@@ -5,7 +5,7 @@ import geopandas as gpd
 from streamlit_folium import st_folium
 import branca.colormap as cm
 from branca.element import Element
-
+from folium.plugins import GroupedLayerControl
 # --- CONFIG ---
 st.set_page_config(layout="wide")
 st.markdown("""
@@ -27,13 +27,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 GOOGLE_TILES = {
-    "Terrain Map": {
-        "url": "https://mt0.google.com/vt/lyrs=p&hl=en&x={x}&y={y}&z={z}",
-        "attr": "Terrain"
-    },
     "Satellite": {
         "url": "https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
         "attr": "Google Hybrid"
+    },
+    "Terrain Map": {
+        "url": "https://mt0.google.com/vt/lyrs=p&hl=en&x={x}&y={y}&z={z}",
+        "attr": "Terrain"
     },
 }
 
@@ -96,10 +96,20 @@ def load_package_data():
         st.error(f"Error loading packages: {e}")
         return None
 
+@st.cache_data
+def load_ranch_data():
+    try:
+        gdf = gpd.read_file("data/four_hearts_ranch_boundary.geojson").to_crs(epsg=4326)
+        return gdf
+    except Exception as e:
+        st.error(f"Error loading ranch: {e}")
+        return None
+
 try:
     parcels_gdf = load_parcel_data()
     points_gdf = load_point_data()
     packages_gdf = load_package_data()
+    ranch_gdf = load_ranch_data()
 except Exception as e:
     st.error(f"Error loading GeoJSON: {e}")
     st.stop()
@@ -141,59 +151,29 @@ def create_map(gdf, points_gdf):
     
     m = folium.Map(location=center, zoom_start=13, tiles=None)
     
-    # Add Google Base Maps
+    # 1. Base Maps (TileLayers)
+    # We store them in a list for the GroupedLayerControl later
+    base_maps = []
     for name, tile_info in GOOGLE_TILES.items():
-        folium.TileLayer(
+        tile = folium.TileLayer(
             tiles=tile_info['url'],
             attr=tile_info['attr'],
             name=name,
             overlay=False
-        ).add_to(m)
+        )
+        tile.add_to(m)
+        base_maps.append(tile)
 
-    # --- DYNAMIC STYLING ---
+    # --- STYLING HELPERS ---
     def style_func(feature):
         pkg = feature['properties'].get('Four Hearts Package', "N/A")
         color = package_color_map.get(pkg, '#808080')
-        return {
-            'fillColor': color,
-            'color': 'white',
-            'weight': 0.3,
-            'fillOpacity': 0.3
-        }
+        return {'fillColor': color, 'color': 'white', 'weight': 0.5, 'fillOpacity': 0.4}
 
-    # --- DYNAMIC STYLING ---
-    def style_package_func(feature):
-        pkg = feature['properties'].get('package_name', "N/A")
-        color = package_color_map.get(pkg, '#808080')
-        return {
-            'fillColor': 'none',
-            'color': color,
-            'weight': 3.5,
-            'fillOpacity': 0
-        }
-
-    def style_alr_func(feature):
-        pkg = feature['properties'].get('ALR status', "N/A")
-        color = alr_color_map.get(pkg, '#808080')
-        return {
-            'fillColor': 'none',
-            'color': color,
-            'weight': 2.5,
-            'fillOpacity': 0
-        }
-
-    # Tooltip setup
-    tooltip_fields = [
-        "DL#", "Parcel_ID", "Brief description", "Acres", "ALR status", 
-        "Assesed Value TOTAL", "BD List Value", "Four Hearts Package"
-    ]
+    tooltip_fields = ["DL#", "Parcel_ID", "Brief description", "Acres", "Four Hearts Package"]
     available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
 
-    # --- LAYER HIERARCHY ---
-    
-
-    
-
+    # --- CREATE FEATURE GROUPS ---
     # 4. Infrastructure/Points Group
     fg_pins = folium.FeatureGroup(name="Structures", show=True)
     for _, row in points_gdf.iterrows():
@@ -213,19 +193,23 @@ def create_map(gdf, points_gdf):
     
     fg_pins.add_to(m)
 
-    # 2. Master Parcel Group (The "Parcel All" Toggle)
-    fg_all_parcels = folium.FeatureGroup(name="Parcels (All)", show=True)
-    
-    # 3. Create Sub-layers for each Package
-    unlicensed_gdf = gdf[gdf['License'] == False]
-    packages = sorted(unlicensed_gdf['Four Hearts Package'].unique())
+    # B. Ranch Boundary (Dissolved Polygon)
+    fg_boundary = folium.FeatureGroup(name="Ranch Boundary", show=True)
+    boundary_gdf = gdf.dissolve() 
+    folium.GeoJson(
+        boundary_gdf,
+        style_function=lambda x: {'fillColor': 'none', 'color': '#F5D798', 'weight': 3}
+    ).add_to(fg_boundary)
+    fg_boundary.add_to(m)
+
+    # C. Individual Packages (The Nested List)
+    package_layer_list = []
+    packages = sorted(gdf['Four Hearts Package'].unique())
 
     for pkg in packages:
-        # Indented name for visual nesting in the LayerControl
-        pkg_display_name = f"&nbsp;&nbsp;&nbsp;&nbsp; {pkg}"
-        pkg_group = folium.FeatureGroup(name=pkg_display_name, show=True)
-        
-        pkg_gdf = unlicensed_gdf[unlicensed_gdf['Four Hearts Package'] == pkg]
+        # Note: Name here is just the package name; the plugin handles the 'Parcels' header
+        pkg_group = folium.FeatureGroup(name=pkg, show=True)
+        pkg_gdf = gdf[gdf['Four Hearts Package'] == pkg]
         
         if not pkg_gdf.empty:
             folium.GeoJson(
@@ -234,57 +218,55 @@ def create_map(gdf, points_gdf):
                 tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
             ).add_to(pkg_group)
         
-        # ADD THE PACKAGE TO THE MASTER GROUP (This creates the hierarchy)
-        pkg_group.add_to(fg_all_parcels)
+        pkg_group.add_to(m)
+        package_layer_list.append(pkg_group)
 
-    # Finally, add the Master Group to the map
-    fg_all_parcels.add_to(m)
-
-
-    # 5. Packages Group
-    fg_packages = folium.FeatureGroup(name="Packages", show=True)
-    if not packages_gdf.empty:
-        folium.GeoJson(
-            packages_gdf,
-            style_function=style_package_func,
-        ).add_to(fg_packages)
-    fg_packages.add_to(m)
-
-    # 6. ALR status
-    fg_alr = folium.FeatureGroup(name="ALR Status", show=True)
-    if not parcels_gdf.empty:
-        folium.GeoJson(
-            parcels_gdf,
-            style_function=style_alr_func,
-        ).add_to(fg_alr)
-    fg_alr.add_to(m)
-
-    # 1. Licensed Land Group (Independent)
+    # D. License/Lease Land
     fg_licensed = folium.FeatureGroup(name="License/Lease Land", show=True)
     licensed_gdf = gdf[gdf['License'] == True]
     if not licensed_gdf.empty:
-        folium.GeoJson(
-            licensed_gdf,
-            style_function=style_func,
-            tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
-        ).add_to(fg_licensed)
+        folium.GeoJson(licensed_gdf, style_function=style_func).add_to(fg_licensed)
     fg_licensed.add_to(m)
 
-    # --- UI CONTROLS ---
-    folium.LayerControl(position='topright', collapsed=False).add_to(m)
+    # --- THE GROUPED LAYER CONTROL ---
+    GroupedLayerControl(
+        groups={
+            "Layers": [fg_pins, fg_boundary],
+            "Parcels": package_layer_list,
+            "Legal": [fg_licensed]
+        },
+        exclusive_groups=[],
+        collapsed=False,
+        position='topright'
+    ).add_to(m)
 
-    # Custom CSS for the Layer Control (Checkboxes)
+    # --- BASE MAPS LAYER CONTROL ---
+    GroupedLayerControl(
+        groups={
+            "Base Maps": base_maps,
+        },
+        exclusive_groups=True,
+        collapsed=True,
+        position="topleft"
+    ).add_to(m)
+
+    # --- CUSTOM CSS FOR INDENTATION ---
     custom_css = """
     <style>
-        .leaflet-control-layers-selector {
-            accent-color: #2e7d32 !important;
-            cursor: pointer;
-        }
-        .leaflet-control-layers-list label {
-            margin-bottom: 5px;
-            display: block;
-            font-family: sans-serif;
+        /* Categorical Header Styling */
+        .leaflet-control-layers-group-name {
+            font-weight: bold;
             font-size: 14px;
+            color: #333;
+            margin-top: 10px;
+            display: block;
+            border-bottom: 1px solid #eee;
+        }
+        /* Indent the child checkboxes */
+        .leaflet-control-layers-group {
+            margin-left: 12px;
+            padding-left: 5px;
+            border-left: 1px solid #ddd;
         }
     </style>
     """
