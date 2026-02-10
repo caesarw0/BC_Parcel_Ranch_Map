@@ -96,10 +96,20 @@ def load_package_data():
         st.error(f"Error loading packages: {e}")
         return None
 
+@st.cache_data
+def load_ranch_data():
+    try:
+        gdf = gpd.read_file("data/four_hearts_ranch_boundary.geojson").to_crs(epsg=4326)
+        return gdf
+    except Exception as e:
+        st.error(f"Error loading ranch: {e}")
+        return None
+
 try:
     parcels_gdf = load_parcel_data()
     points_gdf = load_point_data()
     packages_gdf = load_package_data()
+    ranch_gdf = load_ranch_data()
 except Exception as e:
     st.error(f"Error loading GeoJSON: {e}")
     st.stop()
@@ -182,6 +192,15 @@ def create_map(gdf, points_gdf):
             'fillOpacity': 0
         }
 
+    def style_ranch_func(feature):
+        color = '#8C985F'
+        return {
+            'fillColor': color,
+            'color': color,
+            'weight': 2.5,
+            'fillOpacity': 0.3
+        }
+
     # Tooltip setup
     tooltip_fields = [
         "DL#", "Parcel_ID", "Brief description", "Acres", "ALR status", 
@@ -189,8 +208,14 @@ def create_map(gdf, points_gdf):
     ]
     available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
 
-    # --- LAYER HIERARCHY ---
-    
+    # 0. Ranch Group
+    fg_ranch = folium.FeatureGroup(name="Ranch Boundary", show=True)
+    if not ranch_gdf.empty:
+        folium.GeoJson(
+            ranch_gdf,
+            style_function=style_ranch_func,
+        ).add_to(fg_ranch)
+    fg_ranch.add_to(m)
 
     
 
