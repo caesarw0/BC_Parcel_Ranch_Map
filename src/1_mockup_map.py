@@ -27,13 +27,13 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 GOOGLE_TILES = {
-    "Terrain Map": {
-        "url": "https://mt0.google.com/vt/lyrs=p&hl=en&x={x}&y={y}&z={z}",
-        "attr": "Terrain"
-    },
     "Satellite": {
         "url": "https://mt0.google.com/vt/lyrs=y&hl=en&x={x}&y={y}&z={z}",
         "attr": "Google Hybrid"
+    },
+    "Terrain Map": {
+        "url": "https://mt0.google.com/vt/lyrs=p&hl=en&x={x}&y={y}&z={z}",
+        "attr": "Terrain"
     },
 }
 
@@ -194,23 +194,22 @@ def create_map(gdf, points_gdf):
     fg_pins.add_to(m)
 
     # B. Ranch Boundary (Dissolved Polygon)
-    fg_boundary = folium.FeatureGroup(name="Ranch Boundary", show=False)
+    fg_boundary = folium.FeatureGroup(name="Ranch Boundary", show=True)
     boundary_gdf = gdf.dissolve() 
     folium.GeoJson(
         boundary_gdf,
-        style_function=lambda x: {'fillColor': 'none', 'color': '#2e7d32', 'weight': 3}
+        style_function=lambda x: {'fillColor': 'none', 'color': '#F5D798', 'weight': 3}
     ).add_to(fg_boundary)
     fg_boundary.add_to(m)
 
     # C. Individual Packages (The Nested List)
     package_layer_list = []
-    unlicensed_gdf = gdf[gdf['License'] == False]
-    packages = sorted(unlicensed_gdf['Four Hearts Package'].unique())
+    packages = sorted(gdf['Four Hearts Package'].unique())
 
     for pkg in packages:
         # Note: Name here is just the package name; the plugin handles the 'Parcels' header
         pkg_group = folium.FeatureGroup(name=pkg, show=True)
-        pkg_gdf = unlicensed_gdf[unlicensed_gdf['Four Hearts Package'] == pkg]
+        pkg_gdf = gdf[gdf['Four Hearts Package'] == pkg]
         
         if not pkg_gdf.empty:
             folium.GeoJson(
@@ -229,17 +228,26 @@ def create_map(gdf, points_gdf):
         folium.GeoJson(licensed_gdf, style_function=style_func).add_to(fg_licensed)
     fg_licensed.add_to(m)
 
-    # --- THE GROUPED LAYER CONTROL (Matches your image) ---
+    # --- THE GROUPED LAYER CONTROL ---
     GroupedLayerControl(
         groups={
-            "Base Maps": base_maps,
             "Layers": [fg_pins, fg_boundary],
             "Parcels": package_layer_list,
             "Legal": [fg_licensed]
         },
-        exclusive_groups=[], # Set to [base_maps] if you want radio buttons for tiles
+        exclusive_groups=[],
         collapsed=False,
         position='topright'
+    ).add_to(m)
+
+    # --- BASE MAPS LAYER CONTROL ---
+    GroupedLayerControl(
+        groups={
+            "Base Maps": base_maps,
+        },
+        exclusive_groups=True,
+        collapsed=True,
+        position="topleft"
     ).add_to(m)
 
     # --- CUSTOM CSS FOR INDENTATION ---
