@@ -61,6 +61,11 @@ def load_parcel_data():
     if 'Designation3' in gdf.columns:
         gdf = gdf.rename(columns={'Designation3': 'Parcel_ID'})
 
+    if 'key_parcel_num' in gdf.columns:
+        gdf = gdf.rename(columns={'key_parcel_num': 'Parcel Number'})
+        # convert to integer (handle null cases)
+        gdf['Parcel Number'] = gdf['Parcel Number'].fillna(0).astype(int)
+
     price_cols = ['Assesed Value Land', 'Assesed Value Improve', 'Assesed Value TOTAL', 
                   'BD List Value', 'Estimated property transfer tax ()',
                   'Estimated PTT (cultivated farmland)', 'Estimated PTT (rangeland)']
@@ -130,10 +135,8 @@ except Exception as e:
 
 # --- COLOR MAPPING ---
 unique_packages = sorted(parcels_gdf['Four Hearts Package'].unique())
-unique_alr =  sorted(parcels_gdf['ALR status'].unique())
 colors = ['#e41a1c', '#377eb8', '#4daf4a', '#984ea3', '#ff7f00', '#ffff33', '#a65628']
 package_color_map = {pkg: colors[i % len(colors)] for i, pkg in enumerate(unique_packages)}
-alr_color_map = {pkg: colors[i % len(colors)] for i, pkg in enumerate(unique_alr)}
 
 def create_div_icon(icon_url, bg_color="#3498db"):
     # CSS for a circular background with the SVG centered inside
@@ -184,9 +187,6 @@ def create_map(gdf, points_gdf):
         color = package_color_map.get(pkg, '#808080')
         return {'fillColor': color, 'color': 'white', 'weight': 0.5, 'fillOpacity': 0.4}
 
-    tooltip_fields = ["DL#", "Parcel_ID", "Brief description", "Acres", "Four Hearts Package"]
-    available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
-
     # --- CREATE FEATURE GROUPS ---
     # 2. Infrastructure/Points Group
     fg_pins = folium.FeatureGroup(name="Structures", show=True)
@@ -209,45 +209,62 @@ def create_map(gdf, points_gdf):
 
     # 3. Ranch Boundary (Dissolved Polygon)
     fg_boundary = folium.FeatureGroup(name="Ranch Boundary", show=True)
-    boundary_gdf = gdf.dissolve() 
     folium.GeoJson(
-        boundary_gdf,
+        ranch_gdf,
         style_function=lambda x: {'fillColor': 'none', 'color': '#F5D798', 'weight': 3}
     ).add_to(fg_boundary)
     fg_boundary.add_to(m)
 
     # 4. Individual Packages (The Nested List)
+    tooltip_fields = ["DL#", "Parcel_ID", "Brief description", "Acres", "Four Hearts Package", "Parcel Number"]
+    available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
     package_layer_list = []
     packages = sorted(gdf['Four Hearts Package'].unique())
 
     for pkg in packages:
-        # Note: Name here is just the package name; the plugin handles the 'Parcels' header
         pkg_group = folium.FeatureGroup(name=pkg, show=True)
         pkg_gdf = gdf[gdf['Four Hearts Package'] == pkg]
         
         if not pkg_gdf.empty:
+            # Add the polygon layer
             folium.GeoJson(
                 pkg_gdf,
                 style_function=style_func,
                 tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
             ).add_to(pkg_group)
+            
+            # Add labels at the centroid
+            for _, row in pkg_gdf.iterrows():
+                if row.get("Parcel Number") > 0:
+                    folium.map.Marker(
+                        location=[row.geometry.centroid.y, row.geometry.centroid.x],
+                        icon=folium.DivIcon(
+                            html=f"""<div">{row['Parcel Number']}</div>"""
+                        )
+                    ).add_to(pkg_group)
         
         pkg_group.add_to(m)
         package_layer_list.append(pkg_group)
+
 
     # 5. License/Lease Land
     fg_licensed = folium.FeatureGroup(name="License/Lease Land", show=True)
     licensed_gdf = gdf[gdf['License'] == True]
     if not licensed_gdf.empty:
-        folium.GeoJson(licensed_gdf, style_function=style_func).add_to(fg_licensed)
+        folium.GeoJson(
+            licensed_gdf,
+            style_function=style_func,
+            tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
+        ).add_to(fg_licensed)
     fg_licensed.add_to(m)
 
     # 6. ALR Polygon
     fg_alr = folium.FeatureGroup(name="ALR Status", show=True)
     if not alr_gdf.empty:
-        folium.GeoJson(alr_gdf,
-        style_function=lambda x: {'fillColor': '#8C985F', 'color': '#2e7d32', 'weight': 1, 'fillOpacity': 0.5}
-    ).add_to(fg_alr)
+        folium.GeoJson(
+            alr_gdf,
+            style_function=lambda x: {'fillColor': '#8C985F', 'color': '#2e7d32', 'weight': 1, 'fillOpacity': 0.5}
+        ).add_to(fg_alr)
     fg_alr.add_to(m)
 
     # --- THE GROUPED LAYER CONTROL ---
