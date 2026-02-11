@@ -75,6 +75,8 @@ def load_parcel_data():
         
     if 'Four Hearts Package' in gdf.columns:
         gdf['Four Hearts Package'] = gdf['Four Hearts Package'].fillna("N/A").astype(str)
+        # custom package name cleaning
+        gdf['Four Hearts Package'] = gdf['Four Hearts Package'].str.replace('FOUR HEARTS RANCH - ', ' ')
         
     return gdf
 
@@ -91,6 +93,8 @@ def load_point_data():
 def load_package_data():
     try:
         gdf = gpd.read_file("data/four_hearts_packages.geojson").to_crs(epsg=4326)
+        # custom package name cleaning
+        gdf['package_name'] = gdf['package_name'].str.replace('FOUR HEARTS RANCH - ', ' ')
         return gdf
     except Exception as e:
         st.error(f"Error loading packages: {e}")
@@ -105,11 +109,21 @@ def load_ranch_data():
         st.error(f"Error loading ranch: {e}")
         return None
 
+@st.cache_data
+def load_alr_data():
+    try:
+        gdf = gpd.read_file("data/alr_polygon_filtered.geojson").to_crs(epsg=4326)
+        return gdf
+    except Exception as e:
+        st.error(f"Error loading ALR polygon: {e}")
+        return None
+
 try:
     parcels_gdf = load_parcel_data()
     points_gdf = load_point_data()
     packages_gdf = load_package_data()
     ranch_gdf = load_ranch_data()
+    alr_gdf = load_alr_data()
 except Exception as e:
     st.error(f"Error loading GeoJSON: {e}")
     st.stop()
@@ -174,7 +188,7 @@ def create_map(gdf, points_gdf):
     available_tooltips = [f for f in tooltip_fields if f in gdf.columns]
 
     # --- CREATE FEATURE GROUPS ---
-    # 4. Infrastructure/Points Group
+    # 2. Infrastructure/Points Group
     fg_pins = folium.FeatureGroup(name="Structures", show=True)
     for _, row in points_gdf.iterrows():
         name_html = f"<b>{row['Name']}</b>"
@@ -193,7 +207,7 @@ def create_map(gdf, points_gdf):
     
     fg_pins.add_to(m)
 
-    # B. Ranch Boundary (Dissolved Polygon)
+    # 3. Ranch Boundary (Dissolved Polygon)
     fg_boundary = folium.FeatureGroup(name="Ranch Boundary", show=True)
     boundary_gdf = gdf.dissolve() 
     folium.GeoJson(
@@ -202,7 +216,7 @@ def create_map(gdf, points_gdf):
     ).add_to(fg_boundary)
     fg_boundary.add_to(m)
 
-    # C. Individual Packages (The Nested List)
+    # 4. Individual Packages (The Nested List)
     package_layer_list = []
     packages = sorted(gdf['Four Hearts Package'].unique())
 
@@ -221,19 +235,28 @@ def create_map(gdf, points_gdf):
         pkg_group.add_to(m)
         package_layer_list.append(pkg_group)
 
-    # D. License/Lease Land
+    # 5. License/Lease Land
     fg_licensed = folium.FeatureGroup(name="License/Lease Land", show=True)
     licensed_gdf = gdf[gdf['License'] == True]
     if not licensed_gdf.empty:
         folium.GeoJson(licensed_gdf, style_function=style_func).add_to(fg_licensed)
     fg_licensed.add_to(m)
 
+    # 6. ALR Polygon
+    fg_alr = folium.FeatureGroup(name="ALR Status", show=True)
+    if not alr_gdf.empty:
+        folium.GeoJson(alr_gdf,
+        style_function=lambda x: {'fillColor': '#8C985F', 'color': '#2e7d32', 'weight': 1, 'fillOpacity': 0.5}
+    ).add_to(fg_alr)
+    fg_alr.add_to(m)
+
     # --- THE GROUPED LAYER CONTROL ---
     GroupedLayerControl(
         groups={
             "Layers": [fg_pins, fg_boundary],
             "Parcels": package_layer_list,
-            "Legal": [fg_licensed]
+            "Legal": [fg_licensed],
+            "ALR Status": [fg_alr]
         },
         exclusive_groups=[],
         collapsed=False,
