@@ -232,6 +232,17 @@ def create_map(gdf, points_gdf):
                 style_function=style_func,
                 tooltip=folium.GeoJsonTooltip(fields=available_tooltips, localize=True)
             ).add_to(pkg_group)
+
+            package_boundary = pkg_gdf.dissolve()  # merge all parcels in this package
+            boundary_color = package_color_map[pkg]
+            folium.GeoJson(
+                package_boundary,
+                style_function=lambda x, color=boundary_color: {
+                    'fillColor': 'none',
+                    'color': color,
+                    'weight': 3
+                }
+            ).add_to(pkg_group)
             
             # Add labels at the centroid
             for _, row in pkg_gdf.iterrows():
