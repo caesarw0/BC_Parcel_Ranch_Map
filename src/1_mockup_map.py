@@ -291,6 +291,10 @@ def create_map(gdf, points_gdf):
             padding-left: 5px;
             border-left: 1px solid #ddd;
         }
+        .leaflet-control-layers-selector {
+            accent-color: #2e7d32 !important;
+            cursor: pointer;
+        }
     </style>
     """
     m.get_root().header.add_child(Element(custom_css))
